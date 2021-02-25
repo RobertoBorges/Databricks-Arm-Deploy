@@ -1,0 +1,331 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+
+    "parameters": {
+        "resourceGroup_name": {
+            "type": "string"
+        },
+        "resourceGroup_location": {
+            "type": "string"
+        },
+        "workspaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the Azure Databricks workspace to create."
+            }
+        },
+        "enableNoPublicIp": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Specifies whether to deploy Azure Databricks workspace with secure cluster connectivity (SCC) enabled or not"
+            }
+        },
+        "pricingTier": {
+            "type": "string",
+            "allowedValues": [
+                "standard"
+            ],
+            "metadata": {
+                "description": "The pricing tier of workspace."
+            }
+        },
+        "deployment_Name": {
+            "type": "string"
+        },
+        "administratorLogin": {
+            "type": "string",
+            "metadata": {
+                "description": "The SQL Server administrator login"
+            }
+        },
+        "administratorLoginPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "The SQL Server administrator login password."
+            }
+        },
+        "serverName": {
+            "type": "string",
+            "metadata": {
+                "description": "The SQL Server name."
+            }
+        },
+        "elasticPoolName": {
+            "type": "string",
+            "metadata": {
+                "description": "The Elastic Pool name."
+            }
+        },
+        "edition": {
+            "type": "string",
+            "allowedValues": [ "Basic" ],
+            "metadata": {
+                "description": "The Elastic Pool edition."
+            }
+        },
+        "capacity": {
+            "type": "int",
+            "allowedValues": [ 50, 100, 200, 300, 400, 800, 1200, 1600 ],
+            "metadata": {
+                "description": "The Elastic Pool DTU or nomber of vcore."
+            }
+        },
+        "databaseCapacityMin": {
+            "type": "int",
+            "defaultValue": 0,
+            "metadata": {
+                "description": "The Elastic Pool database capacity min."
+            }
+        },
+        "databaseCapacityMax": {
+            "type": "int",
+            "allowedValues": [ 5 ],
+            "metadata": {
+                "description": "Max DTU per database choices"
+            }
+        },
+        "databasesNames": {
+            "type": "array",
+            "metadata": {
+                "description": "The SQL Databases names."
+            }
+        },
+        "databaseCollation": {
+            "type": "string",
+            "defaultValue": "SQL_Latin1_General_CP1_CI_AS",
+            "metadata": {
+                "description": "The SQL Database collation."
+            }
+        }
+    },
+    "variables": {
+        "managedResourceGroupName": "[concat('databricks-rg-', parameters('workspaceName'), '-', uniqueString(parameters('workspaceName'), parameters('resourceGroup_name')))]",
+        "editionToSkuMap": {
+            "Basic": {
+                "family": "BasicPool",
+                "name": "BasicPool",
+                "tier": "Basic"
+            },
+            "Standard": {
+                "family": "StandardPool",
+                "name": "StandardPool",
+                "tier": "Standard"
+            },
+            "Premium": {
+                "family": "PremiumPool",
+                "name": "PremiumPool",
+                "tier": "Premium"
+            },
+            "GP_Gen5": {
+                "family": "Gen5",
+                "name": "GP_Gen5",
+                "tier": "GeneralPurpose"
+            },
+            "BC_Gen5": {
+                "family": "Gen5",
+                "name": "BC_Gen5",
+                "tier": "BusinessCritical"
+            }
+        },
+        "skuName": "[variables('editionToSkuMap')[parameters('edition')].name]",
+        "skuTier": "[variables('editionToSkuMap')[parameters('edition')].tier]",
+        "skuFamily": "[variables('editionToSkuMap')[parameters('edition')].family]"
+    },
+    "resources": [
+        {
+            "name": "[parameters('resourceGroup_name')]",
+            "type": "Microsoft.Resources/resourceGroups",
+            "apiVersion": "2020-06-01",
+            "location": "[parameters('resourceGroup_location')]",
+            "tags": {},
+            "properties": {
+            }
+        },
+        {
+            "name": "[concat('SQLServer-', parameters('serverName'))]",
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "resourceGroup": "[parameters('resourceGroup_name')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Resources/resourceGroups', parameters('resourceGroup_name'))]"
+            ],
+            "properties": {
+                "expressionEvaluationOptions": {
+                    "scope": "Outer"
+                },
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "resources": [
+                        {
+                            "name": "[parameters('serverName')]",
+                            "type": "Microsoft.Sql/servers",
+                            "apiVersion": "2020-02-02-preview",
+                            "location": "[parameters('resourceGroup_location')]",
+                            "properties": {
+                                "administratorLogin": "[parameters('administratorLogin')]",
+                                "administratorLoginPassword": "[parameters('administratorLoginPassword')]",
+                                "version": "12.0"
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "[concat('elasticPools-', parameters('serverName'))]",
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "resourceGroup": "[parameters('resourceGroup_name')]",
+            "dependsOn": [
+                "[concat('SQLServer-', parameters('serverName'))]"
+            ],
+            "properties": {
+                "expressionEvaluationOptions": {
+                    "scope": "Outer"
+                },
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "resources": [
+                        {
+                            "type": "Microsoft.Sql/servers/elasticPools",
+                            "apiVersion": "2020-02-02-preview",
+                            "location": "[parameters('resourceGroup_location')]",
+                            "name": "[concat(parameters('serverName'), '/', parameters('elasticPoolName'))]",
+                            "sku": {
+                                "name": "[variables('skuName')]",
+                                "tier": "[variables('skuTier')]",
+                                "family": "[variables('skuFamily')]",
+                                "capacity": "[parameters('capacity')]"
+                            },
+                            "properties": {
+                                "perDatabaseSettings": {
+                                    "minCapacity": "[parameters('databaseCapacityMin')]",
+                                    "maxCapacity": "[parameters('databaseCapacityMax')]"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "[concat('databases-', copyIndex())]",
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "resourceGroup": "[parameters('resourceGroup_name')]",
+            "copy": {
+                "name": "addDatabasesInElasticPool",
+                "count": "[length(parameters('databasesNames'))]"
+            },
+            "dependsOn": [
+                "[concat('SQLServer-', parameters('serverName'))]",
+                "[concat('elasticPools-', parameters('serverName'))]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "resources": [
+                        {
+                            "type": "Microsoft.Sql/servers/databases",
+                            "name": "[concat(parameters('serverName'), '/', parameters('databasesNames')[copyIndex()])]",
+                            "location": "[parameters('resourceGroup_location')]",
+                            "apiVersion": "2020-02-02-preview",
+                            "sku": {
+                                "name": "ElasticPool",
+                                "tier": "[variables('skuTier')]",
+                                "capacity": 0
+                            },
+                            "properties": {
+                                "collation": "[parameters('databaseCollation')]",
+                                "elasticPoolId": "[replace(resourceId('Microsoft.Sql/servers/elasticPools', parameters('serverName') , parameters('elasticPoolName')), 
+                                    '/providers', 
+                                    concat('/resourceGroups/', parameters('resourceGroup_name') , '/providers'))]"
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "[concat('FireWallrules-', parameters('serverName'))]",
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2019-10-01",
+            "resourceGroup": "[parameters('resourceGroup_name')]",
+            "dependsOn": [
+                "[concat('SQLServer-', parameters('serverName'))]"
+            ],
+            "properties": {
+                "expressionEvaluationOptions": {
+                    "scope": "Outer"
+                },
+                "mode": "Incremental",
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "resources": [
+                        {
+                            "type": "Microsoft.Sql/servers/firewallrules",
+                            "apiVersion": "2020-02-02-preview",
+                            "location": "[parameters('resourceGroup_location')]",
+                            "name": "[concat(parameters('serverName'), '/', 'AllowAllWindowsAzureIps')]",
+                            "properties": {
+                                "endIpAddress": "0.0.0.0",
+                                "startIpAddress": "0.0.0.0"
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "[parameters('deployment_Name')]",
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2020-06-01",
+            "resourceGroup": "[parameters('resourceGroup_name')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Resources/resourceGroups/', parameters('resourceGroup_name'))]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "expressionEvaluationOptions": {
+                    "scope": "Outer"
+                },
+                "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {},
+                    "variables": {},
+                    "resources": [
+                        {
+                            "type": "Microsoft.Databricks/workspaces",
+                            "apiVersion": "2018-04-01",
+                            "name": "[parameters('workspaceName')]",
+                            "location": "[parameters('resourceGroup_location')]",
+                            "sku": {
+                                "name": "[parameters('pricingTier')]"
+                            },
+                            "properties": {
+                                "managedResourceGroupId": "[subscriptionResourceId('Microsoft.Resources/resourceGroups', variables('managedResourceGroupName'))]",
+                                "parameters": {
+                                    "enableNoPublicIp": {
+                                        "value": "[parameters('enableNoPublicIp')]"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "outputs": {
+    }
+}
